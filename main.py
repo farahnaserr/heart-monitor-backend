@@ -5,14 +5,22 @@ import mysql.connector
 app = FastAPI()
 
 # connect to MySQL
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="root12345",   # 🔴 replace this
-    database="heart_monitoring"
-)
+try:
+    conn = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="root12345",   # replace with your password if needed
+        database="heart_monitoring"
+    )
 
-cursor = conn.cursor()
+    cursor = conn.cursor()
+    print("Connected to MySQL")
+
+except:
+    print("MySQL connection failed (expected on Render)")
+    conn = None
+    cursor = None
+
 
 class ECGData(BaseModel):
     patient_id: int
