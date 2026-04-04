@@ -28,14 +28,17 @@ except Exception as e:
 # =========================
 # DATA MODEL
 # =========================
-class ECGData(BaseModel):
+class SensorData(BaseModel):
     patient_id: int
-    ecg: float
     timestamp: str
+    ecg: float | None = None
+    heart_rate: int | None = None
+    spo2: int | None = None
+    temperature: float | None = None
 
 
 # =========================
-# ROOT (TEST)
+# ROOT
 # =========================
 @app.get("/")
 def root():
@@ -43,36 +46,50 @@ def root():
 
 
 # =========================
-# POST ECG DATA
+# POST SENSOR DATA
 # =========================
-@app.post("/ecg")
-def receive_ecg(data: ECGData):
+@app.post("/sensor-data")
+def receive_sensor_data(data: SensorData):
     if conn is None or cursor is None:
         return {"error": "Database not connected"}
 
     try:
-        query = "INSERT INTO ecg_data (patient_id, ecg, timestamp) VALUES (%s, %s, %s)"
-        values = (data.patient_id, data.ecg, data.timestamp)
+        query = """
+        INSERT INTO ecg_data (patient_id, timestamp, ecg, heart_rate, spo2, temperature)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        values = (
+            data.patient_id,
+            data.timestamp,
+            data.ecg,
+            data.heart_rate,
+            data.spo2,
+            data.temperature
+        )
 
         cursor.execute(query, values)
         conn.commit()
 
-        return {"message": "Data saved"}
+        return {"message": "Sensor data saved"}
 
     except Exception as e:
         return {"error": str(e)}
 
 
 # =========================
-# GET ECG DATA
+# GET ALL SENSOR DATA
 # =========================
-@app.get("/ecg")
-def get_ecg():
+@app.get("/sensor-data")
+def get_sensor_data():
     if conn is None or cursor is None:
         return {"error": "Database not connected"}
 
     try:
-        cursor.execute("SELECT * FROM ecg_data")
+        cursor.execute("""
+            SELECT id, patient_id, timestamp, ecg, heart_rate, spo2, temperature
+            FROM ecg_data
+            ORDER BY id DESC
+        """)
         rows = cursor.fetchall()
 
         data = []
@@ -80,11 +97,50 @@ def get_ecg():
             data.append({
                 "id": row[0],
                 "patient_id": row[1],
-                "ecg": row[2],
-                "timestamp": row[3]
+                "timestamp": row[2],
+                "ecg": row[3],
+                "heart_rate": row[4],
+                "spo2": row[5],
+                "temperature": row[6]
             })
 
         return {"data": data}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# =========================
+# GET LATEST SENSOR DATA
+# =========================
+@app.get("/sensor-data/latest")
+def get_latest_sensor_data():
+    if conn is None or cursor is None:
+        return {"error": "Database not connected"}
+
+    try:
+        cursor.execute("""
+            SELECT id, patient_id, timestamp, ecg, heart_rate, spo2, temperature
+            FROM ecg_data
+            ORDER BY id DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+
+        if row is None:
+            return {"message": "No data found"}
+
+        return {
+            "latest": {
+                "id": row[0],
+                "patient_id": row[1],
+                "timestamp": row[2],
+                "ecg": row[3],
+                "heart_rate": row[4],
+                "spo2": row[5],
+                "temperature": row[6]
+            }
+        }
 
     except Exception as e:
         return {"error": str(e)}
