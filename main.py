@@ -66,6 +66,9 @@ class ECGPredictRequest(BaseModel):
     patient_id: int
     timestamp: str
     ecg: list[float]
+    heart_rate: int | None = None
+    spo2: int | None = None
+    temperature: float | None = None
 
 # =========================
 # AI FUNCTION
@@ -143,10 +146,24 @@ def receive_sensor_data(data: SensorData):
 # =========================
 @app.post("/predict-ecg")
 def predict_ecg(data: ECGPredictRequest):
-    result = predict_ecg_signal(data.ecg)
+    # 1. ECG AI prediction
+    ecg_result = predict_ecg_signal(data.ecg)
 
-    if "error" in result:
-        return result
+    if "error" in ecg_result:
+        return ecg_result
+
+    # 2. Analyze other sensors
+    vitals_result = analyze_vitals(
+        heart_rate=data.heart_rate,
+        spo2=data.spo2,
+        temperature=data.temperature
+    )
+
+    # 3. Overall status
+    overall_status = get_overall_status(
+        ecg_status=ecg_result["status"],
+        vitals=vitals_result
+    )
 
     if conn is None or cursor is None:
         return {"error": "Database not connected"}
@@ -159,19 +176,21 @@ def predict_ecg(data: ECGPredictRequest):
         values = (
             data.patient_id,
             data.timestamp,
-            result["probability"],
-            result["status"]
+            ecg_result["probability"],
+            overall_status
         )
 
         cursor.execute(query, values)
         conn.commit()
 
         return {
-            "message": "ECG prediction saved",
+            "message": "Health analysis saved",
             "patient_id": data.patient_id,
             "timestamp": data.timestamp,
-            "probability": result["probability"],
-            "status": result["status"]
+            "ecg_probability": ecg_result["probability"],
+            "ecg_status": ecg_result["status"],
+            "vitals": vitals_result,
+            "overall_status": overall_status
         }
 
     except Exception as e:
@@ -275,3 +294,51 @@ def get_ecg_predictions():
 
     except Exception as e:
         return {"error": str(e)}
+    
+    # =========================
+# VITALS ANALYSIS (RULE-BASED)
+# =========================
+def analyze_vitals(heart_rate=None, spo2=None, temperature=None):
+    result = {}
+
+    if temperature is not None:
+        if temperature >= 38:
+            result["temperature_status"] = "High"
+        elif temperature < 35:
+            result["temperature_status"] = "Low"
+        else:
+            result["temperature_status"] = "Normal"
+
+    if heart_rate is not None:
+        if heart_rate > 100:
+            result["heart_rate_status"] = "High"
+        elif heart_rate < 60:
+            result["heart_rate_status"] = "Low"
+        else:
+            result["heart_rate_status"] = "Normal"
+
+    if spo2 is not None:
+        if spo2 < 95:
+            result["spo2_status"] = "Low"
+        else:
+            result["spo2_status"] = "Normal"
+
+    return result
+
+
+# =========================
+# OVERALL STATUS
+# =========================
+def get_overall_status(ecg_status=None, vitals=None):
+    if vitals is None:
+        vitals = {}
+
+    if (
+        ecg_status == "Abnormal" or
+        vitals.get("temperature_status") == "High" or
+        vitals.get("heart_rate_status") in ["High", "Low"] or
+        vitals.get("spo2_status") == "Low"
+    ):
+        return "Warning"
+
+    return "Normal"
